@@ -1,0 +1,160 @@
+---
+title: "Practical Machine Learning - Course Project"
+author: "Dominic Tan"
+date: "August 20, 2015"
+output: html_document
+---
+
+##Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+##Data
+
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment. 
+
+##What you should submit
+
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases. 
+
+1. Your submission should consist of a link to a Github repo with your R markdown and compiled HTML file describing your analysis. Please constrain the text of the writeup to < 2000 words and the number of figures to be less than 5. It will make it easier for the graders if you submit a repo with a gh-pages branch so the HTML page can be viewed online (and you always want to make it easy on graders :-).
+
+2. You should also apply your machine learning algorithm to the 20 test cases available in the test data above. Please submit your predictions in appropriate format to the programming assignment for automated grading. See the programming assignment for additional details. 
+
+##Reproducibility 
+
+
+Due to security concerns with the exchange of R code, your code will not be run during the evaluation by your classmates. Please be sure that if they download the repo, they will be able to view the compiled HTML version of your analysis. 
+
+
+## Prepare the datasets
+
+Read the training data into a data table.
+
+```{r}
+library(caret)
+library(ggplot2)
+library(Hmisc)
+
+set.seed(12345)
+raw_training_data <- read.csv("data//pml-training.csv")
+raw_validation_data <- read.csv("data//pml-testing.csv")
+
+summary(raw_training_data)
+```
+
+Partition training data into a training and testing dataset.
+
+Returns a list of variables with their labeling of near-zero-variable
+The list was inspected manually and determined that all variables were
+worth eliminating from the dataset for building the training model.
+
+```{r}
+nsv <- nearZeroVar(raw_training_data,saveMetrics=TRUE)
+```
+
+Returns column positions for near-zero-value variables
+
+```{r}
+nsv_positions <- nearZeroVar(raw_training_data,saveMetrics=FALSE)
+```
+
+Using the position, we will filter out the variables that were near-zero-value.
+
+```{r}
+filtered_training <- raw_training_data[-c(nsv_positions)]
+```
+
+Filter variables related to time. We are not looking at time windows since we want to predict classe using the sensor readings, which have nothing to do with time.
+
+```{r}
+excluding_vars <- names(filtered_training) %in% c("X","user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp","new_window","num_window")
+filtered_training  <- filtered_training[!excluding_vars]
+```
+
+Filter variables that are mostly NA, which were covariates produced by the research team. These are not relevant to our investigation since we are looking 
+into predicting the classe given by an instantaenous movement.
+
+```{r}
+exclude_cols <- grep("^var|^avg|^max|^min|^std|^amplitude",names(filtered_training))
+filtered_training <- filtered_training[-c(exclude_cols)]
+```
+
+Finding correlated variables so that we may exclude one of the highly correlated pairs
+
+```{r}
+filtered_training_no_class <- filtered_training[-c(dim(filtered_training))]
+correlated_cols_to_exclude <- findCorrelation(cor(filtered_training_no_class), cutoff= 0.75)
+filtered_training <- filtered_training[-c(correlated_cols_to_exclude)]
+```
+
+List of remaining variables after preprocessing
+
+```{r}
+print(names(filtered_training))
+filtered_partition = createDataPartition(filtered_training$classe, p=0.75, list=F)
+
+training <- filtered_training[filtered_partition,]
+probe <- filtered_training[-filtered_partition,]
+
+classeFit <- train(training$classe ~., data=training, method="rf",prox=TRUE)
+```
+
+Printout confusion matrix and OOB estimated error.
+Using random forest, the out of sample error should be small.
+
+```{r}
+classeFit$finalModel
+```
+
+Execute Prediction on probe dataset
+
+```{r histGroup}
+pred <- predict(classeFit,probe)
+```
+
+
+Get confussion matrix for prediction on probe
+
+```{r}
+probe$predRight <- pred == probe$classe
+table(pred,probe$classe)
+
+test_set <- raw_validation_data[-c(nsv_positions)]
+test_set <- test_set[!excluding_vars]
+test_set <- test_set[-c(exclude_cols)]
+test_set <- test_set[-c(correlated_cols_to_exclude)]
+
+predOnTest <- predict(classeFit,test_set)
+
+predOnTest
+```
+
+ 
+Submission to Coursera
+
+Write answers to txt files for submission.
+
+```{r}
+pml_write_files = function(x){
+  
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("answers//problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(predOnTest)
+
+```
+
+
